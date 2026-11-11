@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Gamepad2,
   Volume2,
   RotateCw,
   CheckCircle2,
   XCircle,
-  Sparkles,
   Flame,
   Lightbulb,
   RotateCcw,
@@ -18,6 +17,10 @@ import {
   Shuffle,
   HelpCircle,
   Trophy,
+  Plus,
+  CheckSquare,
+  Square,
+  ListChecks,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -86,14 +89,18 @@ export default function PracticePage() {
     decks,
     words,
     dueWords,
+    OXFORD_TOPICS,
     speakWord,
     playSound,
     reviewWord,
     setWordLevelDirect,
     rewardGameCompletion,
+    addWord,
+    copyWordsToDeck,
     SRS_LEVELS,
   } = useApp();
 
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   // Filter & Mode Selection
@@ -103,28 +110,106 @@ export default function PracticePage() {
   const [selectedDeckId, setSelectedDeckId] = useState(
     searchParams.get('deck') || 'all'
   );
+  const [selectedTopic, setSelectedTopic] = useState(
+    searchParams.get('topic') || 'all'
+  );
   const [srsFilter, setSrsFilter] = useState(
     searchParams.get('filter') || 'all'
   );
+  const [selectedLetter, setSelectedLetter] = useState(
+    searchParams.get('letter') || 'all'
+  );
+  const [sessionLimit, setSessionLimit] = useState(20);
+  const [shuffleSeed, setShuffleSeed] = useState(0);
 
-  // Pool of words for the session
-  const sessionPool = useMemo(() => {
-    const nowTs = Date.now();
-    let list = words.filter((w) =>
-      selectedDeckId === 'all' ? true : w.deckId === selectedDeckId
-    );
-    if (srsFilter === 'due') {
-      const due = list.filter((w) => w.level > 0 && w.level < 5 && w.nextReview <= nowTs);
-      if (due.length > 0) list = due;
-    } else if (srsFilter === 'learning') {
-      const lrn = list.filter((w) => w.level >= 1 && w.level <= 4);
-      if (lrn.length > 0) list = lrn;
-    } else if (srsFilter === 'unmastered') {
-      const unm = list.filter((w) => w.level < 5);
-      if (unm.length > 0) list = unm;
+  // Specific word selection (checked word IDs in the selector panel)
+  const [excludedWordIds, setExcludedWordIds] = useState([]);
+  const [urlPickedIds, setUrlPickedIds] = useState([]);
+
+  // Inline Quick Add Word state for the currently selected deck
+  const [quickWord, setQuickWord] = useState('');
+  const [quickMeaning, setQuickMeaning] = useState('');
+
+  // Sync state when URL query params change
+  useEffect(() => {
+    const m = searchParams.get('mode');
+    const d = searchParams.get('deck');
+    const t = searchParams.get('topic');
+    const f = searchParams.get('filter');
+    const l = searchParams.get('letter');
+    const idsParam = searchParams.get('ids');
+
+    if (m && GAME_MODES.some((gm) => gm.id === m)) setActiveMode(m);
+    if (d) setSelectedDeckId(d);
+    if (t) setSelectedTopic(t);
+    if (f) setSrsFilter(f);
+    if (l) setSelectedLetter(l);
+    if (idsParam) {
+      setUrlPickedIds(idsParam.split(',').filter(Boolean));
+    } else {
+      setUrlPickedIds([]);
     }
-    return list.length > 0 ? list : words;
-  }, [words, selectedDeckId, srsFilter]);
+    setExcludedWordIds([]);
+  }, [searchParams]);
+
+  // Base words matching the chosen Deck / Topic / Letter / URL IDs
+  const baseDeckWords = useMemo(() => {
+    if (urlPickedIds.length > 0) {
+      const idSet = new Set(urlPickedIds);
+      const picked = words.filter((w) => idSet.has(w.id));
+      if (picked.length > 0) return picked;
+    }
+
+    return words.filter((w) => {
+      if (selectedDeckId !== 'all' && w.deckId !== selectedDeckId) return false;
+      if (selectedTopic !== 'all' && w.topicId !== selectedTopic) return false;
+      if (selectedLetter !== 'all') {
+        const first = (w.word || '').charAt(0).toUpperCase();
+        if (first !== selectedLetter) return false;
+      }
+      return true;
+    });
+  }, [words, selectedDeckId, selectedTopic, selectedLetter, urlPickedIds]);
+
+  // Apply SRS filter (with smart notice if filter has 0 matches inside a non-empty deck)
+  const { filteredDeckWords, filterFallbackUsed } = useMemo(() => {
+    if (baseDeckWords.length === 0) {
+      return { filteredDeckWords: [], filterFallbackUsed: false };
+    }
+    const nowTs = Date.now();
+    let list = baseDeckWords;
+
+    if (srsFilter === 'due') {
+      list = baseDeckWords.filter(
+        (w) => w.level > 0 && w.level < 5 && w.nextReview <= nowTs
+      );
+    } else if (srsFilter === 'learning') {
+      list = baseDeckWords.filter((w) => w.level >= 1 && w.level <= 4);
+    } else if (srsFilter === 'unmastered') {
+      list = baseDeckWords.filter((w) => w.level < 5);
+    } else if (srsFilter === 'new') {
+      list = baseDeckWords.filter((w) => w.level === 0);
+    } else if (srsFilter === 'mastered') {
+      list = baseDeckWords.filter((w) => w.level === 5);
+    }
+
+    if (list.length === 0 && srsFilter !== 'all') {
+      return { filteredDeckWords: baseDeckWords, filterFallbackUsed: true };
+    }
+    return { filteredDeckWords: list, filterFallbackUsed: false };
+  }, [baseDeckWords, srsFilter]);
+
+  // Active session pool after user checkboxes & shuffle
+  const sessionPool = useMemo(() => {
+    const active = filteredDeckWords.filter(
+      (w) => !excludedWordIds.includes(w.id)
+    );
+    const pool = active.length > 0 ? active : filteredDeckWords;
+    if (shuffleSeed > 0) {
+      return shuffleArray(pool);
+    }
+    return pool;
+  }, [filteredDeckWords, excludedWordIds, shuffleSeed]);
 
   // Shared Game Session State
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -149,16 +234,51 @@ export default function PracticePage() {
   // Word Scramble State
   const [scrambleLetters, setScrambleLetters] = useState([]);
   const [pickedLetters, setPickedLetters] = useState([]);
-  const [scrambleStatus, setScrambleStatus] = useState(null); // 'correct' | 'wrong' | null
+  const [scrambleStatus, setScrambleStatus] = useState(null);
 
   // Spelling & Listening State
   const [typedInput, setTypedInput] = useState('');
-  const [typingStatus, setTypingStatus] = useState(null); // 'correct' | 'wrong' | null
+  const [typingStatus, setTypingStatus] = useState(null);
   const [hintCount, setHintCount] = useState(0);
 
-  const currentWord = sessionPool[currentIndex] || sessionPool[0];
+  const totalSessionQuestions = Math.max(
+    1,
+    Math.min(sessionPool.length, sessionLimit)
+  );
+  const safeIndex =
+    sessionPool.length > 0
+      ? Math.min(currentIndex, sessionPool.length - 1)
+      : 0;
+  const currentWord = sessionPool[safeIndex] || sessionPool[0];
 
-  // Reset session when mode, deck, or filter changes
+  // Build Memory Match board helper
+  const buildMatchBoard = (pool) => {
+    const sample = shuffleArray(pool).slice(0, Math.min(6, pool.length));
+    const tiles = [];
+    sample.forEach((w) => {
+      tiles.push({
+        tileId: `en-${w.id}`,
+        wordId: w.id,
+        type: 'en',
+        text: w.word,
+        sub: w.ipa,
+      });
+      tiles.push({
+        tileId: `vi-${w.id}`,
+        wordId: w.id,
+        type: 'vi',
+        text: w.meaning,
+        sub: `(${w.pos})`,
+      });
+    });
+    setMatchCards(shuffleArray(tiles));
+    setSelectedMatchTile(null);
+    setMatchedIds([]);
+    setWrongPairIds([]);
+    setMatchMoves(0);
+  };
+
+  // Reset session when mode, deck, topic, or filter changes
   const startNewSession = (customMode = activeMode) => {
     setCurrentIndex(0);
     setFlipped(false);
@@ -172,46 +292,48 @@ export default function PracticePage() {
     setTypingStatus(null);
     setHintCount(0);
 
-    if (customMode === 'match') {
-      const sample = shuffleArray(sessionPool).slice(0, 6);
-      const tiles = [];
-      sample.forEach((w) => {
-        tiles.push({
-          tileId: `en-${w.id}`,
-          wordId: w.id,
-          type: 'en',
-          text: w.word,
-          sub: w.ipa,
-        });
-        tiles.push({
-          tileId: `vi-${w.id}`,
-          wordId: w.id,
-          type: 'vi',
-          text: w.meaning,
-          sub: `(${w.pos})`,
-        });
-      });
-      setMatchCards(shuffleArray(tiles));
-      setSelectedMatchTile(null);
-      setMatchedIds([]);
-      setWrongPairIds([]);
-      setMatchMoves(0);
+    if (customMode === 'match' && sessionPool.length > 0) {
+      buildMatchBoard(sessionPool);
     }
   };
 
   useEffect(() => {
     startNewSession(activeMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMode, selectedDeckId, srsFilter]);
+  }, [
+    activeMode,
+    selectedDeckId,
+    selectedTopic,
+    srsFilter,
+    selectedLetter,
+    sessionLimit,
+    shuffleSeed,
+    urlPickedIds,
+  ]);
+
+  // Rebuild match board if words are added or toggled in match mode
+  useEffect(() => {
+    if (activeMode === 'match' && sessionPool.length > 0 && matchCards.length === 0) {
+      buildMatchBoard(sessionPool);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode, sessionPool]);
 
   // Prepare Quiz / Scramble / Listening per question
   useEffect(() => {
     if (!currentWord || sessionFinished) return;
 
     if (activeMode === 'quiz') {
-      const distractors = shuffleArray(
-        words.filter((w) => w.id !== currentWord.id)
-      ).slice(0, 3);
+      // Draw distractors from same deck first, then global words if deck has < 4 words
+      const sameDeckOthers = baseDeckWords.filter(
+        (w) => w.id !== currentWord.id && w.meaning !== currentWord.meaning
+      );
+      const globalOthers = words.filter(
+        (w) => w.id !== currentWord.id && w.meaning !== currentWord.meaning
+      );
+      const sourcePool =
+        sameDeckOthers.length >= 3 ? sameDeckOthers : globalOthers;
+      const distractors = shuffleArray(sourcePool).slice(0, 3);
       const opts = shuffleArray([currentWord, ...distractors]);
       setQuizOptions(opts);
       setSelectedQuizAnswer(null);
@@ -231,13 +353,27 @@ export default function PracticePage() {
         setTimeout(() => speakWord(currentWord.word), 250);
       }
     }
-  }, [currentIndex, activeMode, currentWord, sessionFinished, words, speakWord]);
+  }, [
+    safeIndex,
+    activeMode,
+    currentWord,
+    sessionFinished,
+    baseDeckWords,
+    words,
+    speakWord,
+  ]);
 
   // Keyboard shortcuts for Flashcard mode
   useEffect(() => {
-    if (activeMode !== 'flashcard' || sessionFinished) return;
+    if (activeMode !== 'flashcard' || sessionFinished || !currentWord) return;
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (
+        e.target.tagName === 'INPUT' ||
+        e.target.tagName === 'SELECT' ||
+        e.target.tagName === 'TEXTAREA'
+      ) {
+        return;
+      }
       if (e.code === 'Space') {
         e.preventDefault();
         playSound('flip');
@@ -268,6 +404,7 @@ export default function PracticePage() {
   };
 
   const advanceQuestion = (wasCorrect) => {
+    if (!currentWord) return;
     const nextCorrect = wasCorrect
       ? [...correctIds, currentWord.id]
       : correctIds;
@@ -281,8 +418,8 @@ export default function PracticePage() {
       setCombo(0);
     }
 
-    if (currentIndex + 1 >= Math.min(sessionPool.length, 10)) {
-      finishSession(nextCorrect.length, Math.min(sessionPool.length, 10));
+    if (safeIndex + 1 >= totalSessionQuestions) {
+      finishSession(nextCorrect.length, totalSessionQuestions);
     } else {
       setFlipped(false);
       setCurrentIndex((i) => i + 1);
@@ -298,7 +435,7 @@ export default function PracticePage() {
 
   // --- MODE 2: QUIZ HANDLER ---
   const handleSelectQuizOption = (option) => {
-    if (selectedQuizAnswer) return;
+    if (selectedQuizAnswer || !currentWord) return;
     setSelectedQuizAnswer(option.id);
     const isCorrect = option.id === currentWord.id;
     speakWord(currentWord.word);
@@ -322,7 +459,6 @@ export default function PracticePage() {
 
     setMatchMoves((m) => m + 1);
 
-    // Check if same wordId & opposite type
     if (
       selectedMatchTile.wordId === tile.wordId &&
       selectedMatchTile.type !== tile.type
@@ -352,7 +488,7 @@ export default function PracticePage() {
 
   // --- MODE 4: WORD SCRAMBLE HANDLER ---
   const handlePickScrambleLetter = (letterObj) => {
-    if (scrambleStatus === 'correct') return;
+    if (scrambleStatus === 'correct' || !currentWord) return;
     playSound('key');
     const nextPicked = [...pickedLetters, letterObj];
     setPickedLetters(nextPicked);
@@ -382,7 +518,7 @@ export default function PracticePage() {
   // --- MODE 5 & 6: SPELLING & LISTENING HANDLER ---
   const handleCheckTyping = (e) => {
     e.preventDefault();
-    if (!typedInput.trim() || typingStatus === 'correct') return;
+    if (!typedInput.trim() || typingStatus === 'correct' || !currentWord) return;
     const isCorrect =
       typedInput.trim().toLowerCase() === currentWord.word.trim().toLowerCase();
     if (isCorrect) {
@@ -396,66 +532,181 @@ export default function PracticePage() {
   };
 
   const handleGiveHint = () => {
+    if (!currentWord) return;
     const nextHintLen = Math.min(currentWord.word.length, hintCount + 2);
     setHintCount(nextHintLen);
     setTypedInput(currentWord.word.slice(0, nextHintLen));
     playSound('key');
   };
 
-  // Mask target word inside example sentence for Context Cloze
   const getMaskedExample = (w) => {
     if (!w?.example) return '___';
-    const regex = new RegExp(w.word, 'gi');
+    const escaped = w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'gi');
     if (regex.test(w.example)) {
       return w.example.replace(regex, '_______');
     }
     return `${w.example} (_______)`;
   };
 
-  const totalSessionQuestions = Math.min(sessionPool.length, 10);
-  const progressPct = Math.round(((currentIndex + 1) / totalSessionQuestions) * 100);
+  const handleInlineAddWord = (e) => {
+    e.preventDefault();
+    if (!quickWord.trim()) return;
+    const targetDeck =
+      selectedDeckId !== 'all'
+        ? selectedDeckId
+        : decks[0]?.id || 'deck-oxford-daily';
+    const created = addWord({
+      deckId: targetDeck,
+      word: quickWord,
+      meaning: quickMeaning,
+    });
+    setQuickWord('');
+    setQuickMeaning('');
+    if (created) {
+      setCurrentIndex(0);
+    }
+  };
+
+  const toggleWordIncluded = (wordId) => {
+    setExcludedWordIds((prev) => {
+      if (prev.includes(wordId)) {
+        return prev.filter((id) => id !== wordId);
+      }
+      // Prevent unchecking the very last remaining word
+      if (filteredDeckWords.length - prev.length <= 1) {
+        return prev;
+      }
+      return [...prev, wordId];
+    });
+    setCurrentIndex(0);
+  };
+
+  const progressPct = Math.round(
+    ((safeIndex + 1) / totalSessionQuestions) * 100
+  );
+  const currentDeckObj = decks.find((d) => d.id === selectedDeckId);
 
   return (
     <div className="space-y-6">
-      {/* Top Game Mode Selector Bar */}
+      {/* Top Game Mode & Deck/Topic Selector Bar */}
       <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-orange-600 font-extrabold text-xs uppercase tracking-wider mb-1">
               <Gamepad2 className="w-4 h-4" />
               <span>Trung tâm Luyện Từ & 6 Chế độ Tương tác</span>
             </div>
-            <h1 className="text-2xl font-extrabold text-slate-900">
-              Học Từ Vựng Thông Minh (SRS & Game hóa)
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+              {currentDeckObj
+                ? `Đang học: ${currentDeckObj.icon} ${currentDeckObj.title} (${baseDeckWords.length} từ)`
+                : `Học Từ Vựng Thông Minh (${sessionPool.length.toLocaleString()} từ đang chọn)`}
             </h1>
           </div>
 
-          {/* Deck & SRS Filter Selectors */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Comprehensive Selectors: Deck, Topic, SRS Filter, Session Size, Shuffle */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 1. Deck Selector */}
             <select
               value={selectedDeckId}
-              onChange={(e) => setSelectedDeckId(e.target.value)}
-              className="px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700"
+              onChange={(e) => {
+                setUrlPickedIds([]);
+                setSelectedDeckId(e.target.value);
+              }}
+              className="px-3 py-2 rounded-2xl bg-blue-50/80 border border-blue-200 text-xs font-extrabold text-blue-900 focus:outline-none focus:border-blue-500"
             >
-              <option value="all">📚 Tất cả bộ từ ({words.length} từ)</option>
-              {decks.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.icon} {d.title}
+              <option value="all">
+                📚 Tất cả bộ từ ({words.length.toLocaleString()} từ)
+              </option>
+              {decks.map((d) => {
+                const cnt = words.filter((w) => w.deckId === d.id).length;
+                return (
+                  <option key={d.id} value={d.id}>
+                    {d.icon} {d.title} ({cnt} từ)
+                  </option>
+                );
+              })}
+            </select>
+
+            {/* 2. Oxford 29 Topic Selector */}
+            <select
+              value={selectedTopic}
+              onChange={(e) => {
+                setUrlPickedIds([]);
+                setSelectedTopic(e.target.value);
+              }}
+              className="px-3 py-2 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs font-extrabold text-emerald-900 focus:outline-none focus:border-emerald-500"
+            >
+              <option value="all">🗂️ Mọi chủ đề Oxford (29)</option>
+              {OXFORD_TOPICS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.icon} {t.name}
                 </option>
               ))}
             </select>
 
+            {/* 3. SRS Filter Selector */}
             <select
               value={srsFilter}
               onChange={(e) => setSrsFilter(e.target.value)}
-              className="px-3.5 py-2 rounded-2xl bg-orange-50 border border-orange-200 text-xs font-extrabold text-orange-700"
+              className="px-3 py-2 rounded-2xl bg-orange-50 border border-orange-200 text-xs font-extrabold text-orange-800 focus:outline-none"
             >
-              <option value="all">🎯 Tất cả từ trong bộ</option>
-              <option value="due">🔥 Từ đến hạn cần ôn ({dueWords.length})</option>
-              <option value="unmastered">📈 Từ chưa thuộc (Level 0 - 4)</option>
+              <option value="all">🎯 Tất cả trạng thái SRS</option>
+              <option value="due">🔥 Cần ôn ngay ({dueWords.length})</option>
+              <option value="unmastered">📈 Chưa thuộc (Level 0 - 4)</option>
+              <option value="new">🆕 Từ mới (Level 0)</option>
+              <option value="learning">⏳ Đang học (Level 1 - 4)</option>
+              <option value="mastered">✅ Đã thuộc (Level 5)</option>
             </select>
+
+            {/* 4. Session Word Count Selector */}
+            <select
+              value={sessionLimit}
+              onChange={(e) => setSessionLimit(Number(e.target.value))}
+              className="px-3 py-2 rounded-2xl bg-slate-100 border border-slate-200 text-xs font-extrabold text-slate-700"
+            >
+              <option value={10}>⚡ 10 từ / lượt</option>
+              <option value={20}>⚡ 20 từ / lượt</option>
+              <option value={50}>⚡ 50 từ / lượt</option>
+              <option value={9999}>♾️ Tất cả ({sessionPool.length} từ)</option>
+            </select>
+
+            {/* 5. Shuffle Button */}
+            <button
+              type="button"
+              onClick={() => setShuffleSeed((s) => s + 1)}
+              className="px-3 py-2 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-extrabold text-xs flex items-center gap-1.5 transition"
+              title="Trộn ngẫu nhiên thứ tự từ vựng"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              <span>Trộn từ</span>
+            </button>
           </div>
         </div>
+
+        {/* Notice if custom URL selection or fallback filter is active */}
+        {(urlPickedIds.length > 0 || filterFallbackUsed) && (
+          <div className="px-4 py-2.5 rounded-2xl bg-indigo-50 border border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+            {urlPickedIds.length > 0 ? (
+              <span className="font-bold text-indigo-800">
+                🎯 Bạn đang luyện tập danh sách <strong>{urlPickedIds.length} từ vựng</strong> vừa đánh dấu chọn từ Kho Từ Vựng.
+              </span>
+            ) : (
+              <span className="font-bold text-indigo-800">
+                💡 Bộ từ này chưa có từ nào ở trạng thái lọc vừa chọn nên hệ thống đang hiển thị toàn bộ <strong>{baseDeckWords.length} từ</strong> trong bộ để bạn học ngay.
+              </span>
+            )}
+            {urlPickedIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setUrlPickedIds([])}
+                className="px-2.5 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-700 font-extrabold text-[11px]"
+              >
+                Học toàn bộ bộ từ
+              </button>
+            )}
+          </div>
+        )}
 
         {/* 6 Interactive Game Modes Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -494,8 +745,83 @@ export default function PracticePage() {
         </div>
       </div>
 
-      {/* GAME RESULT SCREEN */}
-      {sessionFinished ? (
+      {/* CASE 1: SELECTED DECK IS EMPTY (0 WORDS) -> INLINE POPULATE & ADD */}
+      {sessionPool.length === 0 ? (
+        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs max-w-2xl mx-auto text-center space-y-5">
+          <div className="w-16 h-16 rounded-3xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center mx-auto text-2xl">
+            {currentDeckObj?.icon || '📘'}
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-extrabold text-slate-900">
+              Bộ từ “{currentDeckObj?.title || 'Đang chọn'}” hiện chưa có từ vựng nào
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500">
+              Hãy thêm nhanh từ mới bên dưới hoặc nạp 25 từ từ kho Oxford 3000+ vào bộ này để bắt đầu học ngay!
+            </p>
+          </div>
+
+          <form
+            onSubmit={handleInlineAddWord}
+            className="flex flex-col sm:flex-row gap-2 max-w-lg mx-auto"
+          >
+            <input
+              type="text"
+              required
+              value={quickWord}
+              onChange={(e) => setQuickWord(e.target.value)}
+              placeholder="Gõ từ tiếng Anh (VD: resilient)..."
+              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
+            />
+            <input
+              type="text"
+              value={quickMeaning}
+              onChange={(e) => setQuickMeaning(e.target.value)}
+              placeholder="Nghĩa Việt (trống = tự điền)..."
+              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
+            />
+            <button
+              type="submit"
+              className="btn-3d px-4 py-2.5 rounded-xl bg-blue-600 text-white font-extrabold text-xs shrink-0"
+            >
+              + Thêm & Học ngay
+            </button>
+          </form>
+
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+            {selectedDeckId !== 'all' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const sample = shuffleArray(words).slice(0, 25);
+                  copyWordsToDeck(selectedDeckId, sample);
+                }}
+                className="btn-3d px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-extrabold text-xs"
+              >
+                ⚡ Nạp nhanh 25 từ Oxford vào bộ này
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('/category-list')}
+              className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+            >
+              Quản lý trong mục Bộ từ vựng
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDeckId('all');
+                setSelectedTopic('all');
+                setSrsFilter('all');
+              }}
+              className="px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs"
+            >
+              Chuyển sang học Tất cả bộ từ
+            </button>
+          </div>
+        </div>
+      ) : sessionFinished ? (
+        /* CASE 2: GAME RESULT SCREEN */
         <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-lg max-w-2xl mx-auto text-center space-y-6">
           <div className="w-20 h-20 rounded-3xl bg-amber-100 border-2 border-amber-300 text-amber-600 flex items-center justify-center mx-auto shadow-md">
             <Trophy className="w-10 h-10" />
@@ -509,7 +835,7 @@ export default function PracticePage() {
               Kết quả đã được đồng bộ vào lịch ôn SRS
             </h2>
             <p className="text-sm text-slate-500">
-              Hệ thống Spaced Repetition đã tự động cập nhật thời điểm ôn tập tiếp theo cho từng từ.
+              Hệ thống Spaced Repetition đã tự động cập nhật thời điểm ôn tập tiếp theo cho từng từ trong bộ.
             </p>
           </div>
 
@@ -558,14 +884,17 @@ export default function PracticePage() {
           </div>
         </div>
       ) : (
-        /* ACTIVE GAME CONTAINER */
+        /* CASE 3: ACTIVE GAME CONTAINER */
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs max-w-4xl mx-auto space-y-6">
           {/* Session Progress Header */}
           {activeMode !== 'match' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-extrabold">
                 <span className="text-slate-600">
-                  Từ {currentIndex + 1} / {totalSessionQuestions}
+                  Từ {safeIndex + 1} / {totalSessionQuestions}{' '}
+                  <span className="text-slate-400 font-semibold">
+                    (Tổng bộ lọc: {sessionPool.length} từ)
+                  </span>
                 </span>
                 <div className="flex items-center gap-3">
                   {combo > 1 && (
@@ -644,6 +973,11 @@ export default function PracticePage() {
                           ({currentWord.pos})
                         </span>
                       </p>
+                      {currentWord.topicName && (
+                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                          {currentWord.topicIcon || '📘'} {currentWord.topicName}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-center gap-2 text-xs font-bold text-slate-400">
@@ -696,7 +1030,7 @@ export default function PracticePage() {
                       </div>
                     </div>
 
-                    {/* Direct SRS Level Switcher on Card Back (matching luyentu.com) */}
+                    {/* Direct SRS Level Switcher on Card Back */}
                     <div
                       onClick={(e) => e.stopPropagation()}
                       className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10 text-xs"
@@ -812,7 +1146,8 @@ export default function PracticePage() {
                     } else if (isPicked) {
                       style = 'bg-red-50 border-red-400 text-red-800';
                     } else {
-                      style = 'bg-slate-50 border-slate-200 text-slate-400 opacity-70';
+                      style =
+                        'bg-slate-50 border-slate-200 text-slate-400 opacity-70';
                     }
                   }
 
@@ -1146,6 +1481,160 @@ export default function PracticePage() {
                 </form>
               </div>
             )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* INTERACTIVE WORD SELECTOR & INLINE QUICK-ADD FOR CURRENT DECK      */}
+      {/* ================================================================== */}
+      {filteredDeckWords.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs max-w-4xl mx-auto space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <ListChecks className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                  Danh sách từ vựng đang chọn học ({sessionPool.length} /{' '}
+                  {filteredDeckWords.length} từ)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Tích chọn/bỏ chọn các từ bạn muốn ôn tập hoặc bấm trực tiếp vào từ bất kỳ để học ngay từ đó
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {excludedWordIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExcludedWordIds([])}
+                  className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold text-xs"
+                >
+                  ✓ Chọn tất cả ({filteredDeckWords.length})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const masteredIds = filteredDeckWords
+                    .filter((w) => w.level === 5)
+                    .map((w) => w.id);
+                  if (masteredIds.length < filteredDeckWords.length) {
+                    setExcludedWordIds(masteredIds);
+                    setCurrentIndex(0);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+              >
+                Chỉ chọn từ chưa thuộc
+              </button>
+            </div>
+          </div>
+
+          {/* Inline Quick Add Word directly into current deck */}
+          <form
+            onSubmit={handleInlineAddWord}
+            className="flex flex-col sm:flex-row gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200/70"
+          >
+            <input
+              type="text"
+              value={quickWord}
+              onChange={(e) => setQuickWord(e.target.value)}
+              placeholder={`Thêm nhanh từ mới vào ${
+                currentDeckObj ? `"${currentDeckObj.title}"` : 'bộ từ hiện tại'
+              } (VD: deadline, negotiate)...`}
+              className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold"
+            />
+            <input
+              type="text"
+              value={quickMeaning}
+              onChange={(e) => setQuickMeaning(e.target.value)}
+              placeholder="Nghĩa tiếng Việt (để trống tự tra từ điển Oxford)..."
+              className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-1 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Thêm & Học ngay</span>
+            </button>
+          </form>
+
+          {/* Selectable & Jumpable Word Pills Grid */}
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto pr-1">
+            {filteredDeckWords.slice(0, 90).map((w) => {
+              const isIncluded = !excludedWordIds.includes(w.id);
+              const activeIdx = sessionPool.findIndex((item) => item.id === w.id);
+              const isCurrent = currentWord?.id === w.id && !sessionFinished;
+
+              return (
+                <div
+                  key={w.id}
+                  onClick={() => {
+                    if (!isIncluded) {
+                      toggleWordIncluded(w.id);
+                    } else if (activeIdx !== -1) {
+                      setSessionFinished(false);
+                      setFlipped(false);
+                      setCurrentIndex(activeIdx);
+                    }
+                  }}
+                  className={`p-3 rounded-2xl border cursor-pointer transition flex items-center justify-between gap-2 ${
+                    isCurrent
+                      ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20'
+                      : isIncluded
+                      ? 'border-slate-200 hover:border-blue-300 bg-white'
+                      : 'border-slate-100 bg-slate-50 opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleWordIncluded(w.id);
+                      }}
+                      className="text-blue-600 shrink-0"
+                      title={isIncluded ? 'Bỏ chọn từ này' : 'Chọn học từ này'}
+                    >
+                      {isIncluded ? (
+                        <CheckSquare className="w-4 h-4 text-blue-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-400" />
+                      )}
+                    </button>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-slate-900 truncate">
+                          {w.word}
+                        </span>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                          Lv.{w.level}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-medium text-blue-700 truncate">
+                        {w.meaning}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      speakWord(w.word);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 shrink-0"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

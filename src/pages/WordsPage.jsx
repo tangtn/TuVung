@@ -11,6 +11,10 @@ import {
   Gamepad2,
   ChevronLeft,
   ChevronRight,
+  CheckSquare,
+  Square,
+  FolderPlus,
+  Play,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -23,6 +27,7 @@ export default function WordsPage() {
     words,
     addWord,
     deleteWord,
+    copyWordsToDeck,
     setWordLevelDirect,
     speakWord,
     OXFORD_TOPICS,
@@ -42,6 +47,12 @@ export default function WordsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // Word Multi-Selection State for studying or adding to a custom deck
+  const [selectedWordIds, setSelectedWordIds] = useState([]);
+  const [targetDeckForCopy, setTargetDeckForCopy] = useState(
+    decks[0]?.id || 'deck-oxford-daily'
+  );
+
   // Add Word Form State
   const [formData, setFormData] = useState({
     deckId: decks[0]?.id || 'deck-oxford-daily',
@@ -57,6 +68,10 @@ export default function WordsPage() {
     const f = searchParams.get('filter');
     if (f === 'due' || f === 'learning' || f === 'mastered') {
       setSelectedFilter(f);
+    }
+    const d = searchParams.get('deck');
+    if (d) {
+      setSelectedDeck(d);
     }
   }, [searchParams]);
 
@@ -113,6 +128,48 @@ export default function WordsPage() {
     return filteredWords.slice(start, start + PAGE_SIZE);
   }, [filteredWords, safePage]);
 
+  const toggleSelectWord = (wordId) => {
+    setSelectedWordIds((prev) =>
+      prev.includes(wordId)
+        ? prev.filter((id) => id !== wordId)
+        : [...prev, wordId]
+    );
+  };
+
+  const isCurrentPageAllSelected =
+    paginatedWords.length > 0 &&
+    paginatedWords.every((w) => selectedWordIds.includes(w.id));
+
+  const toggleSelectCurrentPage = () => {
+    const pageIds = paginatedWords.map((w) => w.id);
+    if (isCurrentPageAllSelected) {
+      setSelectedWordIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+    } else {
+      setSelectedWordIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
+  const handleCopySelectedToDeck = () => {
+    if (selectedWordIds.length === 0 || !targetDeckForCopy) return;
+    const selectedObjs = words.filter((w) => selectedWordIds.includes(w.id));
+    copyWordsToDeck(targetDeckForCopy, selectedObjs);
+    setSelectedWordIds([]);
+  };
+
+  const handlePracticeCurrentFilter = () => {
+    if (selectedWordIds.length > 0) {
+      navigate(`/practice?ids=${selectedWordIds.join(',')}&mode=flashcard`);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('deck', selectedDeck);
+    params.set('topic', selectedTopic);
+    params.set('filter', selectedFilter === 'mastered' || selectedFilter === 'new' || selectedFilter === 'learning' || selectedFilter === 'due' ? selectedFilter : 'all');
+    params.set('letter', selectedLetter);
+    params.set('mode', 'flashcard');
+    navigate(`/practice?${params.toString()}`);
+  };
+
   const handleSmartAutoFill = () => {
     const key = formData.word.trim().toLowerCase();
     if (!key) {
@@ -142,10 +199,10 @@ export default function WordsPage() {
     }
   };
 
-  const handleCreateWord = (e) => {
-    e.preventDefault();
+  const handleCreateWord = (e, studyImmediately = false) => {
+    if (e) e.preventDefault();
     if (!formData.word.trim()) return;
-    addWord({
+    const created = addWord({
       deckId: formData.deckId,
       word: formData.word,
       ipa: formData.ipa,
@@ -163,6 +220,9 @@ export default function WordsPage() {
       exampleVi: '',
     }));
     setShowAddModal(false);
+    if (studyImmediately && created) {
+      navigate(`/practice?deck=${created.deckId}&ids=${created.id}&mode=flashcard`);
+    }
   };
 
   const formatReviewTime = (w) => {
@@ -187,7 +247,7 @@ export default function WordsPage() {
             Kho Từ Vựng ({filteredWords.length.toLocaleString()} / {words.length.toLocaleString()} từ)
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Tích hợp trọn bộ hơn 3.000+ từ vựng tiếng Anh thông dụng nhất phân theo 29 chủ đề kèm phiên âm IPA, nghĩa tiếng Việt & câu ví dụ
+            Tích chọn các từ vựng bất kỳ để thêm vào bộ từ cá nhân hoặc bấm Học ngay trên 6 chế độ
           </p>
         </div>
 
@@ -200,13 +260,101 @@ export default function WordsPage() {
             <span>Thêm từ mới</span>
           </button>
           <button
-            onClick={() =>
-              navigate(`/practice?deck=${selectedDeck}&mode=flashcard`)
-            }
+            onClick={handlePracticeCurrentFilter}
             className="btn-3d px-4 py-3 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2"
           >
             <Gamepad2 className="w-4 h-4" />
-            <span>Luyện tập bộ lọc này</span>
+            <span>
+              {selectedWordIds.length > 0
+                ? `Học ngay ${selectedWordIds.length} từ đã chọn`
+                : `Luyện tập bộ lọc này (${filteredWords.length})`}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Multi-Select Action Bar (Appears when words are checked or for quick batch selection) */}
+      <div className="bg-indigo-50/90 border border-indigo-200 p-4 rounded-3xl flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleSelectCurrentPage}
+            className="px-3.5 py-2 rounded-xl bg-white border border-indigo-200 hover:bg-indigo-100 text-indigo-800 font-extrabold text-xs flex items-center gap-2 transition"
+          >
+            {isCurrentPageAllSelected ? (
+              <CheckSquare className="w-4 h-4 text-indigo-600" />
+            ) : (
+              <Square className="w-4 h-4 text-slate-400" />
+            )}
+            <span>
+              {isCurrentPageAllSelected
+                ? 'Bỏ chọn trang này'
+                : `Chọn cả trang này (${paginatedWords.length} từ)`}
+            </span>
+          </button>
+
+          <span className="text-xs font-extrabold text-indigo-950">
+            Đã chọn:{' '}
+            <strong className="text-blue-600">{selectedWordIds.length}</strong> từ
+          </span>
+
+          {selectedWordIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedWordIds([])}
+              className="text-xs font-bold text-slate-500 hover:text-red-600 underline"
+            >
+              Xóa lựa chọn
+            </button>
+          )}
+        </div>
+
+        {/* Copy Selected Words to Deck or Study Selected Immediately */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={targetDeckForCopy}
+            onChange={(e) => setTargetDeckForCopy(e.target.value)}
+            className="px-3 py-2 rounded-xl bg-white border border-indigo-200 text-xs font-bold text-slate-800"
+          >
+            {decks.map((d) => (
+              <option key={d.id} value={d.id}>
+                📁 Đích: {d.icon} {d.title}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            disabled={selectedWordIds.length === 0}
+            onClick={handleCopySelectedToDeck}
+            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-extrabold text-xs flex items-center gap-1.5 transition"
+          >
+            <FolderPlus className="w-4 h-4" />
+            <span>Thêm vào bộ từ</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedWordIds.length === 0}
+            onClick={() =>
+              navigate(`/practice?ids=${selectedWordIds.join(',')}&mode=flashcard`)
+            }
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-extrabold text-xs flex items-center gap-1.5 transition"
+          >
+            <Play className="w-3.5 h-3.5" />
+            <span>Học Flashcard các từ chọn</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedWordIds.length === 0}
+            onClick={() =>
+              navigate(`/practice?ids=${selectedWordIds.join(',')}&mode=quiz`)
+            }
+            className="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-extrabold text-xs flex items-center gap-1.5 transition"
+          >
+            <Gamepad2 className="w-4 h-4" />
+            <span>Chơi Game các từ chọn</span>
           </button>
         </div>
       </div>
@@ -374,18 +522,37 @@ export default function WordsPage() {
             const deckObj = decks.find((d) => d.id === w.deckId);
             const lvlInfo = SRS_LEVELS.find((l) => l.level === w.level) || SRS_LEVELS[0];
             const isDue = w.level > 0 && w.level < 5 && w.nextReview <= nowTs;
+            const isChecked = selectedWordIds.includes(w.id);
 
             return (
               <div
                 key={w.id}
                 className={`bg-white rounded-3xl p-5 border transition shadow-xs hover:shadow-md ${
-                  isDue ? 'border-orange-300 bg-orange-50/10' : 'border-slate-200/80'
+                  isChecked
+                    ? 'border-blue-500 bg-blue-50/20 ring-2 ring-blue-500/15'
+                    : isDue
+                    ? 'border-orange-300 bg-orange-50/10'
+                    : 'border-slate-200/80'
                 }`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   {/* Left Word Details */}
                   <div className="space-y-2 flex-1">
                     <div className="flex flex-wrap items-center gap-2.5">
+                      {/* Select Checkbox for studying / copying to deck */}
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectWord(w.id)}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-blue-600 transition"
+                        title="Tích chọn từ này để học hoặc thêm vào bộ từ"
+                      >
+                        {isChecked ? (
+                          <CheckSquare className="w-5 h-5 text-blue-600" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-300 hover:text-slate-500" />
+                        )}
+                      </button>
+
                       <button
                         onClick={() => speakWord(w.word)}
                         className="p-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition"
@@ -417,7 +584,7 @@ export default function WordsPage() {
 
                       {deckObj && (
                         <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold">
-                          {deckObj.icon} {deckObj.tag}
+                          {deckObj.icon} {deckObj.title}
                         </span>
                       )}
                     </div>
@@ -441,9 +608,18 @@ export default function WordsPage() {
                     </div>
                   </div>
 
-                  {/* Right SRS Controls */}
+                  {/* Right SRS Controls & Direct Study Button */}
                   <div className="flex sm:flex-row lg:flex-col items-start sm:items-center lg:items-end justify-between gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 shrink-0">
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(`/practice?deck=${w.deckId}&ids=${w.id}&mode=flashcard`)
+                        }
+                        className="px-3 py-1 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-extrabold transition"
+                      >
+                        🃏 Học từ này
+                      </button>
                       <span
                         className={`px-3 py-1 rounded-full text-xs font-extrabold ${lvlInfo.bg}`}
                       >
@@ -582,10 +758,10 @@ export default function WordsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateWord} className="space-y-3.5">
+            <form onSubmit={(e) => handleCreateWord(e, false)} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  Thuộc bộ từ vựng
+                  Chọn bộ từ vựng để lưu vào
                 </label>
                 <select
                   value={formData.deckId}
@@ -665,11 +841,10 @@ export default function WordsPage() {
 
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                  Nghĩa tiếng Việt *
+                  Nghĩa tiếng Việt (để trống sẽ tự điền)
                 </label>
                 <input
                   type="text"
-                  required
                   value={formData.meaning}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, meaning: e.target.value }))
@@ -712,7 +887,7 @@ export default function WordsPage() {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
@@ -722,9 +897,16 @@ export default function WordsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="btn-3d px-6 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold"
+                  className="btn-3d px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold"
                 >
                   Lưu từ vựng
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleCreateWord(e, true)}
+                  className="btn-3d px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-extrabold"
+                >
+                  Lưu & Học ngay →
                 </button>
               </div>
             </form>

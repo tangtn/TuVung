@@ -215,6 +215,68 @@ export function AppProvider({ children }) {
   const masteredWords = words.filter((w) => w.level === 5);
   const learningWords = words.filter((w) => w.level >= 1 && w.level <= 4);
 
+  // Helper to build a rich word object from raw word / meaning using SMART_DICTIONARY
+  const buildWordItem = useCallback(
+    ({ deckId, word, ipa, pos, meaning, example, exampleVi, idx = 0 }) => {
+      const cleanWord = String(word || '').trim();
+      const dictMatch = SMART_DICTIONARY[cleanWord.toLowerCase()];
+      const finalMeaning =
+        meaning?.trim() || dictMatch?.meaning || 'Từ vựng tiếng Anh thông dụng';
+      return {
+        id: `w-custom-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        deckId: deckId || decks[0]?.id || 'deck-oxford-daily',
+        word: cleanWord,
+        ipa: ipa?.trim() || dictMatch?.ipa || `/${cleanWord.toLowerCase()}/`,
+        pos: pos || dictMatch?.pos || 'n',
+        meaning: finalMeaning,
+        topicId: 'other',
+        topicName: 'Bộ từ cá nhân',
+        topicIcon: '✨',
+        example:
+          example?.trim() ||
+          dictMatch?.example ||
+          `Using the word "${cleanWord}" in daily conversation helps you remember it longer.`,
+        exampleVi:
+          exampleVi?.trim() ||
+          dictMatch?.exampleVi ||
+          `Sử dụng từ "${cleanWord}" (${finalMeaning}) trong giao tiếp hàng ngày giúp bạn nhớ lâu hơn.`,
+        synonyms: [],
+        level: 1,
+        nextReview: Date.now(),
+        wrongCount: 0,
+      };
+    },
+    [decks]
+  );
+
+  // Parse multiline raw text into word items
+  const parseRawWordsText = useCallback(
+    (rawText, deckId) => {
+      if (!rawText || !rawText.trim()) return [];
+      const lines = rawText
+        .split(/\r?\n|,/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      return lines
+        .map((line, idx) => {
+          // Support formats: "word : meaning", "word - meaning", "word = meaning", or just "word"
+          const parts = line.split(/\s*[:\-=]\s*/);
+          const wordPart = parts[0]?.trim();
+          const meaningPart = parts.slice(1).join(' - ').trim();
+          if (!wordPart) return null;
+          return buildWordItem({
+            deckId,
+            word: wordPart,
+            meaning: meaningPart,
+            idx,
+          });
+        })
+        .filter(Boolean);
+    },
+    [buildWordItem]
+  );
+
   // Update SRS Level for a word
   const reviewWord = useCallback(
     (wordId, rating = 'good') => {
@@ -332,11 +394,21 @@ export function AppProvider({ children }) {
     [playSound, showToast, user.xpBoostActive]
   );
 
-  // Deck CRUD
+  // Deck CRUD (with optional initial words or topic seed)
   const createDeck = useCallback(
-    ({ title, description, icon = '📘', tag = 'Cá nhân', levelTag = 'Tùy chỉnh', folderId = 'folder-personal' }) => {
+    ({
+      title,
+      description,
+      icon = '📘',
+      tag = 'Cá nhân',
+      levelTag = 'Tùy chỉnh',
+      folderId = 'folder-personal',
+      rawWordsText = '',
+      seedTopicId = '',
+    }) => {
+      const newDeckId = `deck-${Date.now()}`;
       const newDeck = {
-        id: `deck-${Date.now()}`,
+        id: newDeckId,
         title,
         description: description || 'Bộ từ vựng cá nhân do bạn tự tạo.',
         icon,
@@ -348,11 +420,35 @@ export function AppProvider({ children }) {
         downloads: 1,
         author: user.name,
       };
+
+      let addedWords = [];
+      if (rawWordsText && rawWordsText.trim()) {
+        addedWords = parseRawWordsText(rawWordsText, newDeckId);
+      } else if (seedTopicId && seedTopicId !== 'none') {
+        const topicSamples = INITIAL_WORDS.filter((w) => w.topicId === seedTopicId).slice(0, 15);
+        addedWords = topicSamples.map((w, idx) => ({
+          ...w,
+          id: `w-seed-${Date.now()}-${idx}`,
+          deckId: newDeckId,
+          level: 1,
+          nextReview: Date.now(),
+        }));
+      }
+
       setDecks((prev) => [newDeck, ...prev]);
-      showToast(`✨ Đã tạo bộ từ "${title}" thành công!`);
+      if (addedWords.length > 0) {
+        setWords((prev) => [...addedWords, ...prev]);
+      }
+
+      playSound('correct');
+      showToast(
+        addedWords.length > 0
+          ? `✨ Đã tạo bộ từ "${title}" kèm ${addedWords.length} từ vựng sẵn sàng để học!`
+          : `✨ Đã tạo bộ từ "${title}" thành công!`
+      );
       return newDeck;
     },
-    [showToast, user.name]
+    [parseRawWordsText, playSound, showToast, user.name]
   );
 
   const deleteDeck = useCallback(
@@ -383,29 +479,111 @@ export function AppProvider({ children }) {
           ...w,
           id: `w-copy-${Date.now()}-${idx}`,
           deckId: newDeckId,
-          level: 0,
+          level: 1,
           nextReview: Date.now(),
         }));
       setDecks((prev) => [newDeck, ...prev]);
       setWords((prev) => [...deckWords, ...prev]);
-      showToast(`📋 Đã sao chép bộ từ "${target.title}"!`);
+      showToast(`📋 Đã sao chép bộ từ "${target.title}" (${deckWords.length} từ)!`);
+      return newDeck;
     },
     [decks, words, showToast]
   );
 
-  // AI Smart Deck Generator
+  // Copy/Clone selected existing words into a target Deck so the user can study them inside that deck
+  const copyWordsToDeck = useCallback(
+    (targetDeckId, sourceWords) => {
+      if (!targetDeckId || !sourceWords?.length) return 0;
+      const existingInDeck = new Set(
+        words
+          .filter((w) => w.deckId === targetDeckId)
+          .map((w) => w.word.toLowerCase())
+      );
+
+      const cloned = sourceWords
+        .filter((sw) => !existingInDeck.has(sw.word.toLowerCase()))
+        .map((sw, idx) => ({
+          ...sw,
+          id: `w-clone-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+          deckId: targetDeckId,
+          level: 1,
+          nextReview: Date.now(),
+        }));
+
+      if (cloned.length === 0) {
+        showToast('Các từ này đã có sẵn trong bộ từ được chọn!');
+        return 0;
+      }
+
+      setWords((prev) => [...cloned, ...prev]);
+      playSound('correct');
+      const targetDeck = decks.find((d) => d.id === targetDeckId);
+      showToast(
+        `✅ Đã thêm ${cloned.length} từ vào bộ "${targetDeck?.title || 'Bộ từ'}"!`
+      );
+      return cloned.length;
+    },
+    [words, decks, playSound, showToast]
+  );
+
+  // Bulk add words from text into a deck
+  const bulkAddWordsToDeck = useCallback(
+    (deckId, rawText) => {
+      const items = parseRawWordsText(rawText, deckId);
+      if (items.length === 0) return 0;
+      setWords((prev) => [...items, ...prev]);
+      playSound('correct');
+      showToast(`➕ Đã thêm ${items.length} từ vựng mới vào bộ từ!`);
+      return items.length;
+    },
+    [parseRawWordsText, playSound, showToast]
+  );
+
+  // AI Smart Deck Generator (also pulls matching words from the 3,375+ Oxford bank!)
   const generateAIDeck = useCallback(
     (topicQuery, levelChoice = 'B1 - B2') => {
       const q = (topicQuery || '').toLowerCase();
       let templateKey = 'travel';
-      if (q.includes('phỏng vấn') || q.includes('cv') || q.includes('job') || q.includes('công việc') || q.includes('work')) {
+      let oxfordTopicMatch = 'travel';
+
+      if (
+        q.includes('phỏng vấn') ||
+        q.includes('cv') ||
+        q.includes('job') ||
+        q.includes('công việc') ||
+        q.includes('work') ||
+        q.includes('kinh doanh')
+      ) {
         templateKey = 'interview';
-      } else if (q.includes('tài chính') || q.includes('ngân hàng') || q.includes('kinh tế') || q.includes('finance') || q.includes('money')) {
+        oxfordTopicMatch = 'work';
+      } else if (
+        q.includes('tài chính') ||
+        q.includes('ngân hàng') ||
+        q.includes('kinh tế') ||
+        q.includes('finance') ||
+        q.includes('money') ||
+        q.includes('tiền')
+      ) {
         templateKey = 'finance';
-      } else if (q.includes('sức khỏe') || q.includes('y tế') || q.includes('health') || q.includes('bệnh') || q.includes('đời sống')) {
+        oxfordTopicMatch = 'money';
+      } else if (
+        q.includes('sức khỏe') ||
+        q.includes('y tế') ||
+        q.includes('health') ||
+        q.includes('bệnh') ||
+        q.includes('cơ thể')
+      ) {
         templateKey = 'health';
-      } else if (q.includes('du lịch') || q.includes('sân bay') || q.includes('travel') || q.includes('hotel')) {
-        templateKey = 'travel';
+        oxfordTopicMatch = 'body';
+      } else if (
+        q.includes('công nghệ') ||
+        q.includes('it') ||
+        q.includes('ai') ||
+        q.includes('tech') ||
+        q.includes('máy tính')
+      ) {
+        templateKey = 'interview';
+        oxfordTopicMatch = 'tech';
       }
 
       const template = AI_TOPIC_BANK[templateKey];
@@ -417,7 +595,9 @@ export function AppProvider({ children }) {
       const newDeck = {
         id: newDeckId,
         title: customTitle,
-        description: `Bộ từ vựng được AI Luyện Từ tự động biên soạn theo chủ đề "${topicQuery || template.title}" kèm phiên âm IPA và câu ví dụ song ngữ.`,
+        description: `Bộ từ vựng được AI Luyện Từ tự động biên soạn theo chủ đề "${
+          topicQuery || template.title
+        }" kèm phiên âm IPA và câu ví dụ song ngữ.`,
         icon: '🤖',
         tag: 'AI Tạo',
         levelTag: levelChoice,
@@ -428,28 +608,57 @@ export function AppProvider({ children }) {
         author: 'Luyện Từ AI',
       };
 
-      const generatedWords = template.words.map((item, idx) => ({
-        id: `w-ai-${Date.now()}-${idx}`,
-        deckId: newDeckId,
-        word: item.word,
-        ipa: item.ipa,
-        pos: item.pos,
-        meaning: item.meaning,
-        topicId: 'other',
-        topicName: 'AI Tạo theo chủ đề',
-        topicIcon: '🤖',
-        example: item.example,
-        exampleVi: item.exampleVi,
-        synonyms: [],
-        level: 1,
-        nextReview: Date.now(),
-        wrongCount: 0,
-      }));
+      // Combine template words + matching words from Oxford 3000
+      const extraOxford = INITIAL_WORDS.filter(
+        (w) =>
+          w.topicId === oxfordTopicMatch ||
+          (q && w.meaning.toLowerCase().includes(q))
+      ).slice(0, 10);
+
+      const combinedRaw = [
+        ...template.words,
+        ...extraOxford.map((w) => ({
+          word: w.word,
+          ipa: w.ipa,
+          pos: w.pos,
+          meaning: w.meaning,
+          example: w.example,
+          exampleVi: w.exampleVi,
+        })),
+      ];
+
+      // Deduplicate by word
+      const seen = new Set();
+      const generatedWords = [];
+      combinedRaw.forEach((item, idx) => {
+        const key = item.word.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        generatedWords.push({
+          id: `w-ai-${Date.now()}-${idx}`,
+          deckId: newDeckId,
+          word: item.word,
+          ipa: item.ipa,
+          pos: item.pos,
+          meaning: item.meaning,
+          topicId: oxfordTopicMatch,
+          topicName: 'AI Tạo theo chủ đề',
+          topicIcon: '🤖',
+          example: item.example,
+          exampleVi: item.exampleVi,
+          synonyms: [],
+          level: 1,
+          nextReview: Date.now(),
+          wrongCount: 0,
+        });
+      });
 
       setDecks((prev) => [newDeck, ...prev]);
       setWords((prev) => [...generatedWords, ...prev]);
       playSound('win');
-      showToast(`🤖 AI đã tạo bộ từ "${customTitle}" với ${generatedWords.length} từ vựng!`);
+      showToast(
+        `🤖 AI đã tạo bộ từ "${customTitle}" với ${generatedWords.length} từ vựng!`
+      );
       return newDeck;
     },
     [playSound, showToast]
@@ -458,37 +667,21 @@ export function AppProvider({ children }) {
   // Word CRUD
   const addWord = useCallback(
     ({ deckId, word, ipa, pos, meaning, example, exampleVi }) => {
-      const cleanWord = word.trim();
-      const dictMatch = SMART_DICTIONARY[cleanWord.toLowerCase()];
-      const newW = {
-        id: `w-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        deckId: deckId || decks[0]?.id || 'deck-oxford-daily',
-        word: cleanWord,
-        ipa: ipa?.trim() || dictMatch?.ipa || `/${cleanWord.toLowerCase()}/`,
-        pos: pos || dictMatch?.pos || 'n',
-        meaning: meaning?.trim() || dictMatch?.meaning || 'Nghĩa từ vựng',
-        topicId: 'other',
-        topicName: 'Từ vựng cá nhân',
-        topicIcon: '✨',
-        example:
-          example?.trim() ||
-          dictMatch?.example ||
-          `Checking the meaning of "${cleanWord}" helps you remember it longer.`,
-        exampleVi:
-          exampleVi?.trim() ||
-          dictMatch?.exampleVi ||
-          `Tra cứu ngữ cảnh của từ "${cleanWord}" giúp bạn nhớ lâu hơn.`,
-        synonyms: [],
-        level: 1,
-        nextReview: Date.now(),
-        wrongCount: 0,
-      };
+      const newW = buildWordItem({
+        deckId,
+        word,
+        ipa,
+        pos,
+        meaning,
+        example,
+        exampleVi,
+      });
       setWords((prev) => [newW, ...prev]);
       playSound('correct');
-      showToast(`➕ Đã thêm từ "${cleanWord}" vào bộ từ!`);
+      showToast(`➕ Đã thêm từ "${newW.word}" vào bộ từ!`);
       return newW;
     },
-    [decks, playSound, showToast]
+    [buildWordItem, playSound, showToast]
   );
 
   const deleteWord = useCallback(
@@ -504,7 +697,10 @@ export function AppProvider({ children }) {
     (item) => {
       if (user.coins < item.price) {
         playSound('wrong');
-        showToast(`⚠️ Chưa đủ xu! Cần ${item.price} xu để mua "${item.name}".`, 'error');
+        showToast(
+          `⚠️ Chưa đủ xu! Cần ${item.price} xu để mua "${item.name}".`,
+          'error'
+        );
         return false;
       }
 
@@ -598,7 +794,8 @@ export function AppProvider({ children }) {
     setBuddy((prev) => ({
       ...prev,
       sharedStreak: prev.sharedStreak + 1,
-      todayMessage: 'Tuyệt vời! Hai bạn đã giữ chuỗi học chung thành công hôm nay! 🔥🎉',
+      todayMessage:
+        'Tuyệt vời! Hai bạn đã giữ chuỗi học chung thành công hôm nay! 🔥🎉',
     }));
     setUser((prev) => ({ ...prev, coins: prev.coins + 25 }));
     playSound('win');
@@ -641,6 +838,8 @@ export function AppProvider({ children }) {
         createDeck,
         deleteDeck,
         duplicateDeck,
+        copyWordsToDeck,
+        bulkAddWordsToDeck,
         generateAIDeck,
         addWord,
         deleteWord,
