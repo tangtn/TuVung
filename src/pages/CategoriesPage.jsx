@@ -39,6 +39,8 @@ export default function CategoriesPage() {
     bulkAddWordsToDeck,
     speakWord,
     showToast,
+    getWordIllustration,
+    getFallbackSvgDataUri,
   } = useApp();
 
   const navigate = useNavigate();
@@ -319,84 +321,125 @@ export default function CategoriesPage() {
             deckWords.length > 0
               ? Math.round((masteredCount / deckWords.length) * 100)
               : 0;
+          const coverUrl =
+            deck.coverImage ||
+            (deckWords[0] ? getWordIllustration(deckWords[0]) : '');
 
           return (
             <div
               key={deck.id}
-              className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs hover:shadow-xl transition flex flex-col justify-between"
+              className="bg-white rounded-3xl overflow-hidden border border-slate-200/80 shadow-xs hover:shadow-xl transition flex flex-col justify-between group"
             >
               <div>
-                <div className="flex items-start justify-between gap-2 mb-4">
-                  <div className="w-13 h-13 p-3 rounded-2xl bg-indigo-50 border border-indigo-100 text-2xl flex items-center justify-center">
-                    {deck.icon}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => openDeckModal(deck, 'list')}
-                      title="Xem & thêm từ vựng vào bộ"
-                      className="p-2 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition"
+                {/* Deck Cover Image Banner */}
+                <div
+                  onClick={() => openDeckModal(deck, 'list')}
+                  className="relative h-36 w-full overflow-hidden bg-slate-900 cursor-pointer"
+                >
+                  {coverUrl && (
+                    <img
+                      src={coverUrl}
+                      alt={deck.title}
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.src = getFallbackSvgDataUri({
+                          word: deck.tag,
+                          topicIcon: deck.icon,
+                          topicName: deck.title,
+                        });
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-900/25 to-transparent" />
+
+                  {/* Top Action Buttons on Banner */}
+                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-white/95 text-slate-900 shadow-xs flex items-center gap-1">
+                      <span>📸 Có hình minh họa</span>
+                    </span>
+
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 bg-white/95 backdrop-blur-xs p-1 rounded-2xl shadow-xs"
                     >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => openDeckModal(deck, 'pick')}
-                      title="Chọn thêm từ kho 3000+ từ"
-                      className="p-2 rounded-xl text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => duplicateDeck(deck.id)}
-                      title="Sao chép bộ từ"
-                      className="p-2 rounded-xl text-slate-500 hover:text-purple-600 hover:bg-purple-50 transition"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleShareDeck(deck)}
-                      title="Chia sẻ link bộ từ"
-                      className="p-2 rounded-xl text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition"
-                    >
-                      <Share2 className="w-4 h-4" />
-                    </button>
-                    {!deck.isSystem && (
                       <button
-                        onClick={() => deleteDeck(deck.id)}
-                        title="Xóa bộ từ"
-                        className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                        onClick={() => openDeckModal(deck, 'list')}
+                        title="Xem & thêm từ vựng vào bộ"
+                        className="p-1.5 rounded-xl text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
+                      <button
+                        onClick={() => openDeckModal(deck, 'pick')}
+                        title="Chọn thêm từ kho 3000+ từ"
+                        className="p-1.5 rounded-xl text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => duplicateDeck(deck.id)}
+                        title="Sao chép bộ từ"
+                        className="p-1.5 rounded-xl text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleShareDeck(deck)}
+                        title="Chia sẻ link bộ từ"
+                        className="p-1.5 rounded-xl text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                      {!deck.isSystem && (
+                        <button
+                          onClick={() => deleteDeck(deck.id)}
+                          title="Xóa bộ từ"
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Icon & Tag Overlay on Banner */}
+                  <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-11 h-11 rounded-2xl bg-white/95 border border-white text-2xl flex items-center justify-center shadow-md shrink-0">
+                        {deck.icon}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-600 text-white shadow-xs">
+                          {deck.tag}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-black/50 text-white backdrop-blur-xs">
+                          {deck.levelTag}
+                        </span>
+                      </div>
+                    </div>
+                    {dueCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-orange-500 text-white shadow-xs shrink-0">
+                        🔥 {dueCount} đến hạn
+                      </span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    {deck.tag}
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
-                    {deck.levelTag}
-                  </span>
-                  {dueCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-orange-100 text-orange-700">
-                      🔥 {dueCount} đến hạn
-                    </span>
-                  )}
+                <div className="p-5 pb-3">
+                  <h3
+                    onClick={() => openDeckModal(deck, 'list')}
+                    className="font-extrabold text-base sm:text-lg text-slate-900 hover:text-blue-600 cursor-pointer transition mb-1.5 line-clamp-1"
+                  >
+                    {deck.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+                    {deck.description}
+                  </p>
                 </div>
-
-                <h3
-                  onClick={() => openDeckModal(deck, 'list')}
-                  className="font-extrabold text-lg text-slate-900 hover:text-blue-600 cursor-pointer transition mb-1.5"
-                >
-                  {deck.title}
-                </h3>
-                <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mb-4">
-                  {deck.description}
-                </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 space-y-3">
+              <div className="px-5 pb-5 pt-3 border-t border-slate-100 space-y-3">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-700">
                     📚 {deckWords.length.toLocaleString()} từ vựng
@@ -416,7 +459,7 @@ export default function CategoriesPage() {
                     onClick={() => openDeckModal(deck, 'list')}
                     className="py-2.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
                   >
-                    Quản lý từ
+                    Xem ảnh & từ
                   </button>
                   <button
                     onClick={() => navigate(`/practice?deck=${deck.id}&mode=flashcard`)}
@@ -862,35 +905,46 @@ export default function CategoriesPage() {
                     viewingDeckWords.slice(0, 80).map((w, idx) => (
                       <div
                         key={w.id}
-                        className="p-4 rounded-2xl border border-slate-200/80 hover:border-blue-300 flex items-start justify-between gap-4 bg-white transition"
+                        className="p-4 rounded-2xl border border-slate-200/80 hover:border-blue-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white transition"
                       >
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-bold text-slate-400">
-                              #{idx + 1}
-                            </span>
-                            <span className="font-extrabold text-base text-slate-900">
-                              {w.word}
-                            </span>
-                            <span className="text-xs font-mono text-indigo-600">
-                              {w.ipa}
-                            </span>
-                            <span className="text-xs italic text-slate-500">
-                              ({w.pos})
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-100 text-slate-700">
-                              SRS Level {w.level}
-                            </span>
+                        <div className="flex items-start gap-3.5">
+                          <img
+                            src={w.image || getWordIllustration(w)}
+                            alt={w.word}
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.src = getFallbackSvgDataUri(w);
+                            }}
+                            className="w-20 h-20 rounded-2xl object-cover border border-slate-200 shrink-0 shadow-xs"
+                          />
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-slate-400">
+                                #{idx + 1}
+                              </span>
+                              <span className="font-extrabold text-base text-slate-900">
+                                {w.word}
+                              </span>
+                              <span className="text-xs font-mono text-indigo-600">
+                                {w.ipa}
+                              </span>
+                              <span className="text-xs italic text-slate-500">
+                                ({w.pos})
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-slate-100 text-slate-700">
+                                SRS Level {w.level}
+                              </span>
+                            </div>
+                            <p className="text-sm font-bold text-blue-700">
+                              {w.meaning}
+                            </p>
+                            <p className="text-xs text-slate-600">“{w.example}”</p>
+                            <p className="text-xs text-slate-400 italic">
+                              → {w.exampleVi}
+                            </p>
                           </div>
-                          <p className="text-sm font-bold text-blue-700">
-                            {w.meaning}
-                          </p>
-                          <p className="text-xs text-slate-600">“{w.example}”</p>
-                          <p className="text-xs text-slate-400 italic">
-                            → {w.exampleVi}
-                          </p>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                           <button
                             type="button"
                             onClick={() => speakWord(w.word)}

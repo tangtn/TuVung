@@ -98,6 +98,8 @@ export default function PracticePage() {
     addWord,
     copyWordsToDeck,
     SRS_LEVELS,
+    getWordIllustration,
+    getFallbackSvgDataUri,
   } = useApp();
 
   const navigate = useNavigate();
@@ -121,6 +123,7 @@ export default function PracticePage() {
   );
   const [sessionLimit, setSessionLimit] = useState(20);
   const [shuffleSeed, setShuffleSeed] = useState(0);
+  const [showVisuals, setShowVisuals] = useState(true);
 
   // Specific word selection (checked word IDs in the selector panel)
   const [excludedWordIds, setExcludedWordIds] = useState([]);
@@ -681,6 +684,20 @@ export default function PracticePage() {
               <Shuffle className="w-3.5 h-3.5" />
               <span>Trộn từ</span>
             </button>
+
+            {/* 6. Visual Illustration Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowVisuals((v) => !v)}
+              className={`px-3 py-2 rounded-2xl border font-extrabold text-xs flex items-center gap-1.5 transition ${
+                showVisuals
+                  ? 'bg-rose-50 border-rose-200 text-rose-700'
+                  : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}
+              title="Bật/Tắt hình ảnh minh họa từ vựng"
+            >
+              <span>🖼️ Ảnh: {showVisuals ? 'Bật' : 'Tắt'}</span>
+            </button>
           </div>
         </div>
 
@@ -925,7 +942,9 @@ export default function PracticePage() {
                   playSound('flip');
                   setFlipped(!flipped);
                 }}
-                className="perspective-1000 cursor-pointer select-none h-80 sm:h-96 w-full max-w-2xl mx-auto"
+                className={`perspective-1000 cursor-pointer select-none ${
+                  showVisuals ? 'h-[410px] sm:h-[450px]' : 'h-80 sm:h-96'
+                } w-full max-w-2xl mx-auto`}
               >
                 <div
                   className={`relative w-full h-full duration-500 transform-style-3d transition-transform ${
@@ -933,7 +952,7 @@ export default function PracticePage() {
                   }`}
                 >
                   {/* Card Front */}
-                  <div className="absolute inset-0 backface-hidden rounded-3xl bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/50 border-2 border-indigo-100 p-8 flex flex-col justify-between shadow-md">
+                  <div className="absolute inset-0 backface-hidden rounded-3xl bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/50 border-2 border-indigo-100 p-6 sm:p-7 flex flex-col justify-between shadow-md">
                     <div className="flex items-center justify-between">
                       <span className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-extrabold">
                         SRS Level {currentWord.level} •{' '}
@@ -963,11 +982,28 @@ export default function PracticePage() {
                       </div>
                     </div>
 
-                    <div className="text-center my-auto space-y-2">
-                      <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
+                    <div className="text-center my-auto space-y-2.5">
+                      {showVisuals && (
+                        <div className="w-40 h-28 sm:w-48 sm:h-32 mx-auto rounded-2xl overflow-hidden border-2 border-white shadow-md bg-slate-100">
+                          <img
+                            src={
+                              currentWord.image ||
+                              getWordIllustration(currentWord)
+                            }
+                            alt={currentWord.word}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src =
+                                getFallbackSvgDataUri(currentWord);
+                            }}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                         {currentWord.word}
                       </h2>
-                      <p className="text-lg font-mono text-indigo-600 font-semibold">
+                      <p className="text-base sm:text-lg font-mono text-indigo-600 font-semibold">
                         {currentWord.ipa}{' '}
                         <span className="italic text-slate-500">
                           ({currentWord.pos})
@@ -987,7 +1023,7 @@ export default function PracticePage() {
                   </div>
 
                   {/* Card Back */}
-                  <div className="absolute inset-0 backface-hidden rotate-y-180 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-7 sm:p-8 flex flex-col justify-between shadow-xl">
+                  <div className="absolute inset-0 backface-hidden rotate-y-180 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 flex flex-col justify-between shadow-xl">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-lg font-extrabold text-white">
@@ -1011,13 +1047,32 @@ export default function PracticePage() {
                     </div>
 
                     <div className="space-y-4 my-auto">
-                      <div>
-                        <span className="text-[11px] uppercase tracking-wider text-indigo-300 font-bold">
-                          Nghĩa tiếng Việt ({currentWord.pos})
-                        </span>
-                        <p className="text-2xl sm:text-3xl font-extrabold text-amber-300 mt-0.5">
-                          {currentWord.meaning}
-                        </p>
+                      <div className="flex items-center gap-4">
+                        {showVisuals && (
+                          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-white/20 shadow-lg shrink-0 bg-slate-800">
+                            <img
+                              src={
+                                currentWord.image ||
+                                getWordIllustration(currentWord)
+                              }
+                              alt={currentWord.word}
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src =
+                                  getFallbackSvgDataUri(currentWord);
+                              }}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-[11px] uppercase tracking-wider text-indigo-300 font-bold">
+                            Nghĩa tiếng Việt ({currentWord.pos})
+                          </span>
+                          <p className="text-2xl sm:text-3xl font-extrabold text-amber-300 mt-0.5">
+                            {currentWord.meaning}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="p-4 rounded-2xl bg-white/10 border border-white/10 space-y-1.5">
@@ -1113,7 +1168,7 @@ export default function PracticePage() {
           {/* ============================================================== */}
           {activeMode === 'quiz' && currentWord && (
             <div className="max-w-2xl mx-auto space-y-6">
-              <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 text-center space-y-2">
+              <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 text-center space-y-3">
                 <div className="flex items-center justify-center gap-2">
                   <span className="px-2.5 py-0.5 rounded-full bg-white text-indigo-700 text-xs font-extrabold">
                     Chọn nghĩa đúng của từ
@@ -1125,6 +1180,22 @@ export default function PracticePage() {
                     <Volume2 className="w-4 h-4" />
                   </button>
                 </div>
+                {showVisuals && (
+                  <div className="w-36 h-24 sm:w-44 sm:h-28 mx-auto rounded-2xl overflow-hidden border-2 border-white shadow-md bg-slate-100">
+                    <img
+                      src={
+                        currentWord.image || getWordIllustration(currentWord)
+                      }
+                      alt={currentWord.word}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src =
+                          getFallbackSvgDataUri(currentWord);
+                      }}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
                 <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900">
                   {currentWord.word}
                 </h2>
@@ -1268,10 +1339,26 @@ export default function PracticePage() {
           {/* ============================================================== */}
           {activeMode === 'scramble' && currentWord && (
             <div className="max-w-2xl mx-auto space-y-6 text-center">
-              <div className="p-6 rounded-3xl bg-emerald-50/70 border border-emerald-200 space-y-2">
+              <div className="p-6 rounded-3xl bg-emerald-50/70 border border-emerald-200 space-y-3">
                 <span className="px-3 py-0.5 rounded-full bg-white text-emerald-700 text-xs font-extrabold">
                   Sắp xếp các chữ cái thành từ đúng ({currentWord.pos})
                 </span>
+                {showVisuals && (
+                  <div className="w-36 h-24 sm:w-44 sm:h-28 mx-auto rounded-2xl overflow-hidden border-2 border-white shadow-md bg-slate-100">
+                    <img
+                      src={
+                        currentWord.image || getWordIllustration(currentWord)
+                      }
+                      alt={currentWord.word}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src =
+                          getFallbackSvgDataUri(currentWord);
+                      }}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
                   {currentWord.meaning}
                 </h2>
@@ -1352,6 +1439,22 @@ export default function PracticePage() {
             currentWord && (
               <div className="max-w-2xl mx-auto space-y-6">
                 <div className="p-6 rounded-3xl bg-gradient-to-br from-slate-900 to-indigo-950 text-white text-center space-y-4">
+                  {showVisuals && (
+                    <div className="w-36 h-24 sm:w-44 sm:h-28 mx-auto rounded-2xl overflow-hidden border-2 border-white/20 shadow-lg bg-slate-800">
+                      <img
+                        src={
+                          currentWord.image || getWordIllustration(currentWord)
+                        }
+                        alt={currentWord.word}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src =
+                            getFallbackSvgDataUri(currentWord);
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
                   {activeMode === 'listening' ? (
                     <>
                       <span className="px-3 py-1 rounded-full bg-white/10 text-cyan-300 text-xs font-extrabold">
@@ -1590,7 +1693,7 @@ export default function PracticePage() {
                       : 'border-slate-100 bg-slate-50 opacity-50'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1606,6 +1709,18 @@ export default function PracticePage() {
                         <Square className="w-4 h-4 text-slate-400" />
                       )}
                     </button>
+                    <div className="w-10 h-10 rounded-xl overflow-hidden border border-slate-200/80 bg-slate-100 shrink-0">
+                      <img
+                        src={w.image || getWordIllustration(w)}
+                        alt={w.word}
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = getFallbackSvgDataUri(w);
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="font-extrabold text-xs text-slate-900 truncate">

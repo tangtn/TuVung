@@ -1,4 +1,10 @@
 import oxfordRaw from './oxford3000Data.json';
+import {
+  CORE_DECK_COVERS,
+  VISUAL_DECKS,
+  VISUAL_CURATED_WORDS,
+  getWordIllustration,
+} from './visualDecksData';
 
 const now = Date.now();
 const HOUR = 3600 * 1000;
@@ -16,6 +22,7 @@ export const SRS_LEVELS = [
 export const OXFORD_TOPICS = oxfordRaw.topics || [];
 
 export const INITIAL_FOLDERS = [
+  { id: 'folder-visual', name: 'Từ vựng Hình ảnh Trực quan', icon: '📸', color: '#e11d48' },
   { id: 'folder-school', name: 'Oxford 3000 & THPT Quốc Gia', icon: '📚', color: '#16a34a' },
   { id: 'folder-toeic', name: 'Lộ trình TOEIC 450 - 990', icon: '🎯', color: '#2563eb' },
   { id: 'folder-ielts', name: 'Lộ trình IELTS Academic', icon: '🎓', color: '#9333ea' },
@@ -23,6 +30,7 @@ export const INITIAL_FOLDERS = [
 ];
 
 export const INITIAL_DECKS = [
+  ...VISUAL_DECKS,
   {
     id: 'deck-oxford-daily',
     title: 'Oxford 3000 • Từ Vựng Tiếng Anh Thông Dụng Nhất',
@@ -32,6 +40,8 @@ export const INITIAL_DECKS = [
     levelTag: 'A1 - B2',
     folderId: 'folder-school',
     color: 'from-amber-500 to-orange-600',
+    coverImage: CORE_DECK_COVERS['deck-oxford-daily'],
+    hasImages: true,
     isSystem: true,
     downloads: 128400,
     author: 'Luyện Từ Official',
@@ -45,6 +55,8 @@ export const INITIAL_DECKS = [
     levelTag: '650 - 800+',
     folderId: 'folder-toeic',
     color: 'from-blue-500 to-indigo-600',
+    coverImage: CORE_DECK_COVERS['deck-toeic-business'],
+    hasImages: true,
     isSystem: true,
     downloads: 54200,
     author: 'Luyện Từ Official',
@@ -58,6 +70,8 @@ export const INITIAL_DECKS = [
     levelTag: 'Band 6.5 - 8.0+',
     folderId: 'folder-ielts',
     color: 'from-purple-500 to-fuchsia-600',
+    coverImage: CORE_DECK_COVERS['deck-ielts-academic'],
+    hasImages: true,
     isSystem: true,
     downloads: 46390,
     author: 'Luyện Từ Official',
@@ -71,6 +85,8 @@ export const INITIAL_DECKS = [
     levelTag: 'Lớp 10 - 12',
     folderId: 'folder-school',
     color: 'from-emerald-500 to-teal-600',
+    coverImage: CORE_DECK_COVERS['deck-thpt-core'],
+    hasImages: true,
     isSystem: true,
     downloads: 62100,
     author: 'Luyện Từ Official',
@@ -84,6 +100,8 @@ export const INITIAL_DECKS = [
     levelTag: 'B1 - C1',
     folderId: 'folder-personal',
     color: 'from-cyan-500 to-blue-600',
+    coverImage: CORE_DECK_COVERS['deck-tech-it'],
+    hasImages: true,
     isSystem: true,
     downloads: 28750,
     author: 'Luyện Từ Official',
@@ -357,8 +375,21 @@ function generateContextualExample(word, pos, meaning, topicName) {
   };
 }
 
-// Build complete 3,375+ words list combining curated words + Oxford 3000 dataset
-const curatedWordSet = new Set(CURATED_WORDS.map((w) => w.word.toLowerCase()));
+// Build complete 3,450+ words list combining visual curated words + core curated words + Oxford 3000 dataset
+const allCuratedList = [
+  ...VISUAL_CURATED_WORDS.map((w) => ({
+    ...w,
+    image: w.image || getWordIllustration(w),
+    wrongCount: 0,
+  })),
+  ...CURATED_WORDS.map((w) => ({
+    ...w,
+    image: w.image || getWordIllustration(w),
+    wrongCount: 0,
+  })),
+];
+
+const curatedWordSet = new Set(allCuratedList.map((w) => w.word.toLowerCase()));
 
 const oxfordMappedWords = (oxfordRaw.words || [])
   .filter((row) => row && row[0] && !curatedWordSet.has(String(row[0]).toLowerCase()))
@@ -400,7 +431,7 @@ const oxfordMappedWords = (oxfordRaw.words || [])
       nextReview = now + 2 * DAY;
     }
 
-    return {
+    const baseObj = {
       id: `ox-${idx + 1}`,
       deckId,
       word: rawWord,
@@ -416,9 +447,44 @@ const oxfordMappedWords = (oxfordRaw.words || [])
       nextReview,
       wrongCount: 0,
     };
+
+    return {
+      ...baseObj,
+      image: getWordIllustration(baseObj),
+    };
   });
 
-export const INITIAL_WORDS = [...CURATED_WORDS, ...oxfordMappedWords];
+// Also populate the 8 visual decks with additional Oxford 3000 words matching their topic so each visual deck has 30+ words
+const VISUAL_DECK_TOPIC_MAP = {
+  'deck-visual-food': ['food'],
+  'deck-visual-travel': ['travel'],
+  'deck-visual-nature': ['nature'],
+  'deck-visual-medical': ['body'],
+  'deck-visual-office': ['work', 'money'],
+  'deck-visual-home': ['home', 'clothes'],
+  'deck-visual-sports': ['sport', 'art'],
+  'deck-visual-science': ['science', 'tech'],
+};
+
+const visualExtraWords = [];
+Object.entries(VISUAL_DECK_TOPIC_MAP).forEach(([vDeckId, topicIds]) => {
+  const matches = oxfordMappedWords
+    .filter((w) => topicIds.includes(w.topicId))
+    .slice(0, 24);
+  matches.forEach((w, idx) => {
+    visualExtraWords.push({
+      ...w,
+      id: `ox-vis-${vDeckId}-${idx + 1}`,
+      deckId: vDeckId,
+    });
+  });
+});
+
+export const INITIAL_WORDS = [
+  ...allCuratedList,
+  ...visualExtraWords,
+  ...oxfordMappedWords,
+];
 
 // --- ROADMAPS (Lộ trình học chuẩn hóa) ---
 export const ROADMAPS = [
@@ -732,16 +798,17 @@ export const SMART_DICTIONARY = {
   breakthrough: { ipa: '/ˈbreɪkθruː/', pos: 'n', meaning: 'bước đột phá', example: 'Scientists have made a major breakthrough in cancer treatment.', exampleVi: 'Các nhà khoa học đã tạo ra bước đột phá lớn trong điều trị ung thư.' },
 };
 
-// Also populate SMART_DICTIONARY with all Oxford 3000 words so any word typed gets real IPA & meaning!
+// Also populate SMART_DICTIONARY with all Oxford 3000 & Visual words so any word typed gets real IPA, meaning & illustration!
 INITIAL_WORDS.forEach((w) => {
   const k = w.word.toLowerCase();
-  if (!SMART_DICTIONARY[k]) {
+  if (!SMART_DICTIONARY[k] || !SMART_DICTIONARY[k].image) {
     SMART_DICTIONARY[k] = {
-      ipa: w.ipa,
-      pos: w.pos,
-      meaning: w.meaning,
-      example: w.example,
-      exampleVi: w.exampleVi,
+      ipa: SMART_DICTIONARY[k]?.ipa || w.ipa,
+      pos: SMART_DICTIONARY[k]?.pos || w.pos,
+      meaning: SMART_DICTIONARY[k]?.meaning || w.meaning,
+      example: SMART_DICTIONARY[k]?.example || w.example,
+      exampleVi: SMART_DICTIONARY[k]?.exampleVi || w.exampleVi,
+      image: w.image,
     };
   }
 });

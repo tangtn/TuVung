@@ -34,6 +34,8 @@ export default function WordsPage() {
     SRS_LEVELS,
     SMART_DICTIONARY,
     showToast,
+    getWordIllustration,
+    getFallbackSvgDataUri,
   } = useApp();
 
   const navigate = useNavigate();
@@ -46,6 +48,7 @@ export default function WordsPage() {
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
 
   // Word Multi-Selection State for studying or adding to a custom deck
   const [selectedWordIds, setSelectedWordIds] = useState([]);
@@ -454,7 +457,7 @@ export default function WordsPage() {
         </div>
       </div>
 
-      {/* Pagination Summary Bar (Top) */}
+      {/* Pagination Summary & View Mode Toggle Bar (Top) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 text-xs font-bold text-slate-500">
         <span>
           Đang hiển thị từ{' '}
@@ -471,56 +474,190 @@ export default function WordsPage() {
           </strong>
         </span>
 
-        {totalPages > 1 && (
-          <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* View Mode Switcher: List vs Visual Grid */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5">
             <button
-              disabled={safePage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-lg bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
             >
-              <ChevronLeft className="w-4 h-4" />
+              📋 Danh sách + Ảnh
             </button>
-            <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
-              Trang {safePage} / {totalPages}
-            </span>
             <button
-              disabled={safePage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-lg bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                viewMode === 'grid'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
             >
-              <ChevronRight className="w-4 h-4" />
+              🖼️ Thẻ Ảnh Trực Quan
             </button>
           </div>
-        )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                disabled={safePage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1.5 rounded-lg bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
+                Trang {safePage} / {totalPages}
+              </span>
+              <button
+                disabled={safePage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1.5 rounded-lg bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Words List */}
-      <div className="space-y-3">
-        {paginatedWords.length === 0 ? (
-          <div className="bg-white rounded-3xl p-12 text-center border border-slate-200">
-            <p className="text-base font-bold text-slate-700 mb-1">
-              Không tìm thấy từ vựng nào khớp với bộ lọc
-            </p>
-            <p className="text-xs text-slate-500 mb-4">
-              Hãy thử đổi chữ cái, chủ đề hoặc xóa từ khóa tìm kiếm.
-            </p>
-            <button
-              onClick={() => {
-                setSelectedDeck('all');
-                setSelectedTopic('all');
-                setSelectedFilter('all');
-                setSelectedLetter('all');
-                setQuery('');
-              }}
-              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
-            >
-              Đặt lại toàn bộ bộ lọc
-            </button>
-          </div>
-        ) : (
-          paginatedWords.map((w) => {
+      {/* Words List / Visual Grid */}
+      {paginatedWords.length === 0 ? (
+        <div className="bg-white rounded-3xl p-12 text-center border border-slate-200">
+          <p className="text-base font-bold text-slate-700 mb-1">
+            Không tìm thấy từ vựng nào khớp với bộ lọc
+          </p>
+          <p className="text-xs text-slate-500 mb-4">
+            Hãy thử đổi chữ cái, chủ đề hoặc xóa từ khóa tìm kiếm.
+          </p>
+          <button
+            onClick={() => {
+              setSelectedDeck('all');
+              setSelectedTopic('all');
+              setSelectedFilter('all');
+              setSelectedLetter('all');
+              setQuery('');
+            }}
+            className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
+          >
+            Đặt lại toàn bộ bộ lọc
+          </button>
+        </div>
+      ) : viewMode === 'grid' ? (
+        /* VISUAL PHOTO CARDS GRID MODE */
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {paginatedWords.map((w) => {
             const deckObj = decks.find((d) => d.id === w.deckId);
-            const lvlInfo = SRS_LEVELS.find((l) => l.level === w.level) || SRS_LEVELS[0];
+            const lvlInfo =
+              SRS_LEVELS.find((l) => l.level === w.level) || SRS_LEVELS[0];
+            const isChecked = selectedWordIds.includes(w.id);
+
+            return (
+              <div
+                key={w.id}
+                className={`bg-white rounded-3xl overflow-hidden border transition shadow-xs hover:shadow-xl flex flex-col justify-between group ${
+                  isChecked
+                    ? 'border-blue-500 ring-2 ring-blue-500/20'
+                    : 'border-slate-200/80'
+                }`}
+              >
+                <div>
+                  <div className="relative h-44 w-full overflow-hidden bg-slate-900">
+                    <img
+                      src={w.image || getWordIllustration(w)}
+                      alt={w.word}
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.src = getFallbackSvgDataUri(w);
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-black/20" />
+
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectWord(w.id)}
+                        className="p-1.5 rounded-xl bg-white/95 text-blue-600 shadow-xs"
+                      >
+                        {isChecked ? (
+                          <CheckSquare className="w-4 h-4 text-blue-600" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-400" />
+                        )}
+                      </button>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold shadow-xs ${lvlInfo.bg}`}
+                      >
+                        {lvlInfo.name}
+                      </span>
+                    </div>
+
+                    <div className="absolute bottom-3 left-3.5 right-3.5 flex items-end justify-between gap-2">
+                      <div>
+                        <h3 className="text-xl font-extrabold text-white drop-shadow-xs">
+                          {w.word}
+                        </h3>
+                        <p className="text-xs font-mono text-indigo-200">
+                          {w.ipa} ({w.pos})
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => speakWord(w.word)}
+                        className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-md"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-4 space-y-2">
+                    <p className="text-base font-extrabold text-blue-700">
+                      {w.meaning}
+                    </p>
+                    <p className="text-xs text-slate-700 font-medium line-clamp-2">
+                      “{w.example}”
+                    </p>
+                    <p className="text-[11px] text-slate-400 italic line-clamp-2">
+                      → {w.exampleVi}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                  {deckObj ? (
+                    <span className="text-[11px] font-bold text-slate-600 truncate">
+                      {deckObj.icon} {deckObj.tag}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/practice?deck=${w.deckId}&ids=${w.id}&mode=flashcard`)
+                    }
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shrink-0"
+                  >
+                    🃏 Học từ này
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* DETAILED LIST MODE WITH ILLUSTRATION THUMBNAILS */
+        <div className="space-y-3">
+          {paginatedWords.map((w) => {
+            const deckObj = decks.find((d) => d.id === w.deckId);
+            const lvlInfo =
+              SRS_LEVELS.find((l) => l.level === w.level) || SRS_LEVELS[0];
             const isDue = w.level > 0 && w.level < 5 && w.nextReview <= nowTs;
             const isChecked = selectedWordIds.includes(w.id);
 
@@ -536,75 +673,103 @@ export default function WordsPage() {
                 }`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  {/* Left Word Details */}
-                  <div className="space-y-2 flex-1">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      {/* Select Checkbox for studying / copying to deck */}
-                      <button
-                        type="button"
-                        onClick={() => toggleSelectWord(w.id)}
-                        className="p-1.5 rounded-lg hover:bg-slate-100 text-blue-600 transition"
-                        title="Tích chọn từ này để học hoặc thêm vào bộ từ"
-                      >
-                        {isChecked ? (
-                          <CheckSquare className="w-5 h-5 text-blue-600" />
-                        ) : (
-                          <Square className="w-5 h-5 text-slate-300 hover:text-slate-500" />
-                        )}
-                      </button>
-
-                      <button
-                        onClick={() => speakWord(w.word)}
-                        className="p-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition"
-                        title="Nghe phát âm chuẩn"
-                      >
-                        <Volume2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => speakWord(w.word, true)}
-                        className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold transition"
-                        title="Nghe phát âm chậm"
-                      >
-                        🐢 Chậm
-                      </button>
-
-                      <h3 className="text-xl font-extrabold text-slate-900">{w.word}</h3>
-                      <span className="text-sm font-mono text-indigo-600 font-semibold">
-                        {w.ipa}
+                  {/* Left Word Illustration + Details */}
+                  <div className="flex flex-col sm:flex-row items-start gap-4 flex-1">
+                    {/* Illustrative Image Thumbnail */}
+                    <div
+                      onClick={() => speakWord(w.word)}
+                      className="relative w-full sm:w-28 h-36 sm:h-28 rounded-2xl overflow-hidden border border-slate-200 shrink-0 cursor-pointer group bg-slate-900"
+                      title="Bấm vào ảnh để nghe phát âm"
+                    >
+                      <img
+                        src={w.image || getWordIllustration(w)}
+                        alt={w.word}
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.src = getFallbackSvgDataUri(w);
+                        }}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      />
+                      <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-bold">
+                        {w.topicIcon || '📸'}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-bold italic">
-                        {w.pos}
-                      </span>
-
-                      {w.topicName && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
-                          {w.topicIcon || '📘'} {w.topicName}
-                        </span>
-                      )}
-
-                      {deckObj && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold">
-                          {deckObj.icon} {deckObj.title}
-                        </span>
-                      )}
                     </div>
 
-                    <p className="text-base font-extrabold text-blue-700">{w.meaning}</p>
-
-                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-0.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs sm:text-sm font-medium text-slate-800">
-                          “{w.example}”
-                        </p>
+                    <div className="space-y-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {/* Select Checkbox for studying / copying to deck */}
                         <button
-                          onClick={() => speakWord(w.example)}
-                          className="text-slate-400 hover:text-blue-600 shrink-0"
-                          title="Đọc câu ví dụ"
+                          type="button"
+                          onClick={() => toggleSelectWord(w.id)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-blue-600 transition"
+                          title="Tích chọn từ này để học hoặc thêm vào bộ từ"
                         >
-                          <Volume2 className="w-3.5 h-3.5" />
+                          {isChecked ? (
+                            <CheckSquare className="w-5 h-5 text-blue-600" />
+                          ) : (
+                            <Square className="w-5 h-5 text-slate-300 hover:text-slate-500" />
+                          )}
                         </button>
+
+                        <button
+                          onClick={() => speakWord(w.word)}
+                          className="p-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition"
+                          title="Nghe phát âm chuẩn"
+                        >
+                          <Volume2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => speakWord(w.word, true)}
+                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold transition"
+                          title="Nghe phát âm chậm"
+                        >
+                          🐢 Chậm
+                        </button>
+
+                        <h3 className="text-xl font-extrabold text-slate-900">
+                          {w.word}
+                        </h3>
+                        <span className="text-sm font-mono text-indigo-600 font-semibold">
+                          {w.ipa}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-bold italic">
+                          {w.pos}
+                        </span>
+
+                        {w.topicName && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                            {w.topicIcon || '📘'} {w.topicName}
+                          </span>
+                        )}
+
+                        {deckObj && (
+                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold">
+                            {deckObj.icon} {deckObj.title}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-500 italic">→ {w.exampleVi}</p>
+
+                      <p className="text-base font-extrabold text-blue-700">
+                        {w.meaning}
+                      </p>
+
+                      <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs sm:text-sm font-medium text-slate-800">
+                            “{w.example}”
+                          </p>
+                          <button
+                            onClick={() => speakWord(w.example)}
+                            className="text-slate-400 hover:text-blue-600 shrink-0"
+                            title="Đọc câu ví dụ"
+                          >
+                            <Volume2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-500 italic">
+                          → {w.exampleVi}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -674,9 +839,9 @@ export default function WordsPage() {
                 </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* Bottom Pagination Controls */}
       {totalPages > 1 && (

@@ -26,6 +26,8 @@ export default function HomePage() {
     learningWords,
     speakWord,
     SRS_LEVELS,
+    getWordIllustration,
+    getFallbackSvgDataUri,
   } = useApp();
   const navigate = useNavigate();
 
@@ -322,22 +324,36 @@ export default function HomePage() {
             {dueWords.slice(0, 6).map((w) => (
               <div
                 key={w.id}
-                className="p-4 rounded-2xl border border-slate-200/90 hover:border-orange-300 bg-slate-50/60 flex items-start justify-between gap-3 transition"
+                className="p-4 rounded-2xl border border-slate-200/90 hover:border-orange-300 bg-slate-50/60 flex items-center justify-between gap-3 transition"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-base text-slate-900">
-                      {w.word}
-                    </span>
-                    <span className="text-xs font-mono text-indigo-600">{w.ipa}</span>
-                    <span className="text-[11px] italic text-slate-400">({w.pos})</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0">
+                    <img
+                      src={w.image || getWordIllustration(w)}
+                      alt={w.word}
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getFallbackSvgDataUri(w);
+                      }}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
-                  <p className="text-xs font-semibold text-slate-700 line-clamp-1">
-                    {w.meaning}
-                  </p>
-                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-700">
-                    SRS Level {w.level} • Đến hạn
-                  </span>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-extrabold text-base text-slate-900">
+                        {w.word}
+                      </span>
+                      <span className="text-xs font-mono text-indigo-600">{w.ipa}</span>
+                      <span className="text-[11px] italic text-slate-400">({w.pos})</span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-700 line-clamp-1">
+                      {w.meaning}
+                    </p>
+                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-700">
+                      SRS Level {w.level} • Đến hạn
+                    </span>
+                  </div>
                 </div>
                 <button
                   onClick={() => speakWord(w.word)}
@@ -357,10 +373,10 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-extrabold text-slate-900">
-              Bộ từ vựng & Lộ trình của bạn
+              Bộ từ vựng & Lộ trình có hình ảnh minh họa
             </h2>
             <p className="text-xs text-slate-500">
-              Chọn một bộ từ để học Flashcard hoặc chơi 6 chế độ Game tương tác
+              Chọn một bộ từ để học Flashcard trực quan hoặc chơi 6 chế độ Game tương tác
             </p>
           </div>
           <Link
@@ -383,38 +399,63 @@ export default function HomePage() {
               deckWords.length > 0
                 ? Math.round((mastered / deckWords.length) * 100)
                 : 0;
+            const coverImg =
+              deck.coverImage ||
+              (deckWords[0] &&
+                (deckWords[0].image || getWordIllustration(deckWords[0])));
 
             return (
               <div
                 key={deck.id}
-                className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs hover:shadow-lg transition flex flex-col justify-between"
+                className="bg-white rounded-3xl overflow-hidden border border-slate-200/80 shadow-xs hover:shadow-lg transition flex flex-col justify-between group"
               >
                 <div>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-2xl">
-                      {deck.icon}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
-                        {deck.tag}
+                  <div className="relative h-32 w-full bg-slate-100 overflow-hidden">
+                    {coverImg && (
+                      <img
+                        src={coverImg}
+                        alt={deck.title}
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = getFallbackSvgDataUri({
+                            word: deck.title,
+                            meaning: deck.tag || 'Vocabulary',
+                            topicId: 'school',
+                          });
+                        }}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-900/20 to-transparent" />
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-white/90 text-slate-900 shadow-xs">
+                        {deck.icon} {deck.tag}
                       </span>
                       {due > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-red-100 text-red-700">
+                        <span className="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-red-500 text-white shadow-xs">
                           🔥 {due} cần ôn
                         </span>
                       )}
                     </div>
+                    <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-white">
+                      <span className="text-[11px] font-bold text-amber-300">
+                        📸 Minh họa trực quan • {deckWords.length} từ
+                      </span>
+                    </div>
                   </div>
 
-                  <h3 className="font-extrabold text-base text-slate-900 mb-1">
-                    {deck.title}
-                  </h3>
-                  <p className="text-xs text-slate-500 line-clamp-2 mb-4">
-                    {deck.description}
-                  </p>
+                  <div className="p-5 pb-2">
+                    <h3 className="font-extrabold text-base text-slate-900 mb-1">
+                      {deck.title}
+                    </h3>
+                    <p className="text-xs text-slate-500 line-clamp-2 mb-3">
+                      {deck.description}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-3 pt-3 border-t border-slate-100">
+                <div className="px-5 pb-5 space-y-3 pt-3 border-t border-slate-100">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-600">
                       {deckWords.length} từ • Đã thuộc {mastered}
